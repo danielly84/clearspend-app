@@ -2,7 +2,6 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import { 
-  Sparkles, 
   Search, 
   Filter, 
   ArrowUpDown, 
@@ -115,9 +114,7 @@ export default function Dashboard() {
       <header className="sticky top-0 z-30 bg-white border-b border-slate-200 px-6 h-16 flex items-center justify-between shadow-sm">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center shadow-inner">
-              <Sparkles className="w-4 h-4 text-white" />
-            </div>
+            <img src="/logo.png" alt="ClearSpend" className="w-8 h-8 rounded-lg object-cover" />
             <span className="font-bold text-xl tracking-tight text-slate-900">ClearSpend</span>
             <span className="px-2 py-0.5 rounded bg-blue-50 text-blue-700 text-xs font-semibold uppercase tracking-wider ml-1">AI Verify</span>
           </div>
