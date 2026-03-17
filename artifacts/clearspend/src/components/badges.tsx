@@ -10,22 +10,28 @@ export function ConfidenceBadge({ level }: { level: AIConfidence }) {
   };
 
   return (
-    <span className={cn("px-2.5 py-1 text-xs font-medium rounded-md border", styles[level])}>
+    <span className={cn("px-2 py-0.5 text-[11px] font-medium rounded-md border", styles[level])}>
       {level}
     </span>
   );
 }
 
 export function RiskBadge({ level }: { level: RiskLevel }) {
-  const styles = {
-    Low: "bg-emerald-100 text-emerald-800",
-    Medium: "bg-amber-100 text-amber-800",
-    High: "bg-rose-100 text-rose-800",
+  const dotStyles = {
+    Low: "bg-emerald-500",
+    Medium: "bg-amber-500",
+    High: "bg-rose-500",
+  };
+  const textStyles = {
+    Low: "text-emerald-700",
+    Medium: "text-amber-700",
+    High: "text-rose-700",
   };
 
   return (
-    <span className={cn("px-3 py-1 text-xs font-semibold rounded-full", styles[level])}>
-      {level} Risk
+    <span className="inline-flex items-center gap-1.5">
+      <span className={cn("w-1.5 h-1.5 rounded-full", dotStyles[level])} />
+      <span className={cn("text-[12px] font-medium", textStyles[level])}>{level} Risk</span>
     </span>
   );
 }
@@ -33,24 +39,24 @@ export function RiskBadge({ level }: { level: RiskLevel }) {
 export function RecommendationBadge({ recommendation }: { recommendation: AIRecommendation }) {
   if (recommendation === "Approve") {
     return (
-      <div className="flex items-center gap-1.5 text-emerald-700 bg-emerald-50 px-2.5 py-1 rounded-md border border-emerald-100 w-fit">
-        <CheckCircle2 className="w-3.5 h-3.5" />
-        <span className="text-xs font-medium">Approve</span>
+      <div className="flex items-center gap-1 text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-100 w-fit">
+        <CheckCircle2 className="w-3 h-3" />
+        <span className="text-[11px] font-medium">Approve</span>
       </div>
     );
   }
   if (recommendation === "Review") {
     return (
-      <div className="flex items-center gap-1.5 text-amber-700 bg-amber-50 px-2.5 py-1 rounded-md border border-amber-100 w-fit">
-        <Eye className="w-3.5 h-3.5" />
-        <span className="text-xs font-medium">Review</span>
+      <div className="flex items-center gap-1 text-amber-700 bg-amber-50 px-2 py-0.5 rounded border border-amber-100 w-fit">
+        <Eye className="w-3 h-3" />
+        <span className="text-[11px] font-medium">Review</span>
       </div>
     );
   }
   return (
-    <div className="flex items-center gap-1.5 text-rose-700 bg-rose-50 px-2.5 py-1 rounded-md border border-rose-100 w-fit">
-      <XCircle className="w-3.5 h-3.5" />
-      <span className="text-xs font-medium">Reject</span>
+    <div className="flex items-center gap-1 text-rose-700 bg-rose-50 px-2 py-0.5 rounded border border-rose-100 w-fit">
+      <XCircle className="w-3 h-3" />
+      <span className="text-[11px] font-medium">Reject</span>
     </div>
   );
 }
@@ -61,16 +67,16 @@ export function StatusBadge({ status }: { status: ExpenseStatus }) {
   if (status === "Approved") {
     return (
       <div className="flex items-center gap-1 text-emerald-600">
-        <Check className="w-4 h-4" />
-        <span className="text-sm font-medium">Approved</span>
+        <CheckCircle2 className="w-3.5 h-3.5" />
+        <span className="text-[12px] font-medium">Approved</span>
       </div>
     );
   }
   
   return (
     <div className="flex items-center gap-1 text-rose-600">
-      <X className="w-4 h-4" />
-      <span className="text-sm font-medium">Rejected</span>
+      <XCircle className="w-3.5 h-3.5" />
+      <span className="text-[12px] font-medium">Rejected</span>
     </div>
   );
 }
@@ -80,7 +86,7 @@ export function FlagChip({ flag }: { flag: string }) {
   
   return (
     <span className={cn(
-      "inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border",
+      "inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[11px] font-semibold border",
       isMissingReceipt 
         ? "bg-rose-50 text-rose-700 border-rose-200" 
         : "bg-amber-50 text-amber-700 border-amber-200"

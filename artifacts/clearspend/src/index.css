@@ -55,8 +55,8 @@
 }
 
 :root {
-  /* Clean Light Theme - Slate & Blue */
-  --background: 210 40% 98%; /* slate-50 */
+  /* Clean Light Theme - Warm White & Refined */
+  --background: 220 14% 97%; /* #FAFAFA slightly warm white */
   --foreground: 222 47% 11%; /* slate-900 */
   
   --border: 214 32% 91%; /* slate-200 */
@@ -92,13 +92,13 @@
   --warning: 38 92% 50%; /* amber-500 */
   --warning-foreground: 210 40% 98%;
 
-  --radius: 0.75rem;
+  --radius: 0.625rem;
 
-  --shadow-sm: 0 1px 2px 0 rgb(0 0 0 / 0.05);
+  --shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.06), 0 1px 2px -1px rgb(0 0 0 / 0.04);
   --shadow: 0 1px 3px 0 rgb(0 0 0 / 0.1), 0 1px 2px -1px rgb(0 0 0 / 0.1);
   --shadow-md: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
   --shadow-lg: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
-  --shadow-xl: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+  --shadow-xl: 0 20px 40px -8px rgb(0 0 0 / 0.12), 0 8px 16px -4px rgb(0 0 0 / 0.06);
 }
 
 @layer base {
@@ -106,7 +106,7 @@
     @apply border-border;
   }
   body {
-    @apply font-sans antialiased bg-background text-foreground;
+    @apply font-sans antialiased bg-background text-foreground min-h-screen bg-gradient-to-br from-neutral-50 to-white bg-fixed;
   }
   
   /* Custom scrollbar for drawer */
