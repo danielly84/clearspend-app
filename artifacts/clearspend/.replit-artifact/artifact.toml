@@ -1,0 +1,31 @@
+kind = "web"
+previewPath = "/"
+title = "ClearSpend AI Verify"
+version = "1.0.0"
+id = "artifacts/clearspend"
+router = "path"
+
+[[integratedSkills]]
+name = "react-vite"
+version = "1.0.0"
+
+[[services]]
+localPort = 20425
+name = "web"
+paths = ["/"]
+
+[services.development]
+run = "pnpm --filter @workspace/clearspend run dev"
+
+[services.env]
+PORT = "20425"
+BASE_PATH = "/"
+
+[services.production]
+build = ["pnpm", "--filter", "@workspace/clearspend", "run", "build"]
+publicDir = "artifacts/clearspend/dist/public"
+serve = "static"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"

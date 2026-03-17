@@ -1,0 +1,103 @@
+Build a clean, modern web app prototype called “ClearSpend AI Verify”.
+
+This is a portfolio prototype to demonstrate how AI can assist managers in reviewing employee expenses quickly and confidently.
+
+FOCUS
+Only build ONE core workflow:
+Manager reviewing expenses → clicking into details → taking action.
+
+Do not build a full system. No backend needed. Use mock data.
+
+TECH
+- React
+- Tailwind CSS
+- Single-page app
+- Use mock JSON data
+- No authentication
+
+UI STRUCTURE
+
+1. MAIN SCREEN: MANAGER INBOX
+- A table or list of expenses
+- Each row shows:
+  - Employee name
+  - Merchant
+  - Amount
+  - Category
+  - Date
+  - AI confidence (High / Medium / Low)
+  - Risk level (Low / Medium / High)
+  - AI recommendation (Approve / Review / Reject)
+- Add simple filters:
+  - All
+  - Low risk
+  - Needs review
+- Allow selecting multiple rows (checkboxes)
+
+2. EXPENSE DETAIL PANEL (right-side drawer)
+When a row is clicked, open a side panel with:
+
+- Receipt image placeholder
+- Expense details (merchant, amount, category, date)
+- Employee note
+- AI confidence score
+- AI reasoning in plain language, for example:
+  - “This expense matches company travel policy”
+  - “Amount exceeds meal limit by 25%”
+  - “Possible duplicate Uber charge within 2 hours”
+
+- Flags section:
+  - Missing receipt
+  - Policy violation
+  - Duplicate suspected
+
+- Action buttons:
+  - Approve
+  - Reject
+  - Ask for clarification
+
+3. TOP SUMMARY (simple)
+At the top of the page show:
+- Pending
+- AI-approved (low risk)
+- Needs review
+- High risk
+
+DESIGN STYLE
+- Clean, modern B2B SaaS dashboard
+- Light theme
+- Spacious layout
+- Subtle shadows and rounded corners
+- Neutral colors with accents:
+  - Green = safe
+  - Amber = needs review
+  - Red = high risk
+  - Blue = AI insights
+
+INTERACTIONS
+- Hover states on rows
+- Smooth opening/closing of detail drawer
+- Highlight selected row
+- Filter switching updates the list
+- Basic sorting (amount or risk)
+
+DATA
+Seed with realistic mock data:
+- Merchants like Uber, Marriott, Delta, Starbucks
+- Mix of normal and problematic expenses:
+  - Valid hotel expense
+  - Meal slightly over limit
+  - Missing receipt
+  - Duplicate ride
+
+GOAL
+The prototype should clearly demonstrate:
+- AI-assisted decision making
+- Explainable AI (not a black box)
+- Faster review of many expenses
+- Confidence in approving or flagging items
+
+Add a simple title:
+“AI-Assisted Expense Management”
+and subtitle:
+“Manager review experience prototype”
