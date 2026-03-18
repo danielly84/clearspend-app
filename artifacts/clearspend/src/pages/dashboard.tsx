@@ -137,7 +137,6 @@ export default function Dashboard() {
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="ClearSpend" className="w-7 h-7 rounded object-cover" />
             <span className="font-semibold text-[17px] tracking-[-0.01em] text-slate-900">ClearSpend</span>
-            <span className="rounded-md px-2 py-0.5 text-[10px] font-bold tracking-widest bg-indigo-50 text-indigo-600 border border-indigo-100 ml-1">AI VERIFY</span>
           </div>
           <div className="hidden md:block h-5 w-px bg-slate-200" />
           <h1 className="hidden md:block font-medium text-slate-400 text-sm">Manager Review Dashboard</h1>
