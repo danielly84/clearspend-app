@@ -31,4 +31,4 @@ The dev server listens on localhost only. To test from another device on your ne
 
 ## Repository layout
 
-This is a pnpm workspace. The deployed app is `artifacts/clearspend`. The other packages (`artifacts/api-server`, `artifacts/mockup-sandbox`, `lib/*`, `scripts`) came from the original project template and are not used by the frontend.
+This is a pnpm workspace with a single package, `artifacts/clearspend`, which is the deployed app. The workspace root holds the shared `tsconfig.base.json`, the lockfile, and the pinned pnpm version that Vercel's install relies on.
