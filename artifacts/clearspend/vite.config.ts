@@ -19,7 +19,6 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(import.meta.dirname, "src"),
-      "@assets": path.resolve(import.meta.dirname, "..", "..", "attached_assets"),
     },
     dedupe: ["react", "react-dom"],
   },
@@ -28,10 +27,9 @@ export default defineConfig({
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
   },
+  // Vite's default host is localhost; pass --host to expose the server on the network.
   server: {
     port,
-    host: "0.0.0.0",
-    allowedHosts: true,
     fs: {
       strict: true,
       deny: ["**/.*"],
@@ -39,7 +37,5 @@ export default defineConfig({
   },
   preview: {
     port,
-    host: "0.0.0.0",
-    allowedHosts: true,
   },
 });

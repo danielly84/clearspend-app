@@ -1,5 +1,0 @@
-packages:
-  "framer-motion": "For smooth drawer slide-in animations and page transitions"
-  "date-fns": "For formatting mock data dates cleanly"
-  "clsx": "Utility for constructing className strings conditionally"
-  "tailwind-merge": "Utility for merging tailwind classes without style conflicts"

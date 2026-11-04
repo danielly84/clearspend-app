@@ -83,7 +83,7 @@ export default function Dashboard() {
     }
   };
 
-  const toggleSelectRow = (id: string, e: React.MouseEvent) => {
+  const toggleSelectRow = (id: string, e: React.SyntheticEvent) => {
     e.stopPropagation();
     const newSet = new Set(selectedIds);
     if (newSet.has(id)) newSet.delete(id);
@@ -337,7 +337,8 @@ export default function Dashboard() {
                             <div className="text-[11px] text-slate-400 mt-0.5">{format(new Date(expense.date), 'MMM d, yyyy')}</div>
                           </div>
                           {expense.flags.length > 0 && (
-                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 ml-1" title={expense.flags.join(', ')} />
+                            // LucideProps doesn't type `title`; the spread keeps the existing SVG attribute as rendered before.
+                            <AlertTriangle className="w-3.5 h-3.5 text-amber-500 flex-shrink-0 ml-1" {...{ title: expense.flags.join(', ') }} />
                           )}
                         </div>
                       </td>
