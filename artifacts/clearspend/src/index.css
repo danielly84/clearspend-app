@@ -123,3 +123,27 @@
     @apply bg-slate-300;
   }
 }
+
+/*
+ * Toast placement while the expense drawer is open (the drawer sets data-drawer-open on
+ * <html>). Default placement, top-center under the header, is set in components/ui/toast.tsx.
+ * Unlayered, so these rules override the Tailwind utilities on the viewport.
+ */
+@media (min-width: 900px) {
+  /* Wide screens: center toasts in the dashboard area left of the 480px drawer. */
+  [data-drawer-open] .toast-viewport {
+    right: 480px;
+  }
+}
+@media (max-width: 899.98px) {
+  /* Narrow screens: the drawer covers most or all of the width, so stack toasts at the
+     bottom of the drawer, just above its footer actions, leaving the header and close
+     button visible. */
+  [data-drawer-open] .toast-viewport {
+    top: auto;
+    bottom: var(--drawer-footer-height, 0px);
+    left: auto;
+    right: 0;
+    max-width: 480px;
+  }
+}

@@ -14,11 +14,12 @@ const ToastViewport = React.forwardRef<
   // Top-center, just below the 60px dashboard header: clear of the bulk action bar
   // (bottom) and the drawer's close button and footer actions (right edge) at every
   // width. pointer-events-none keeps the empty container from intercepting clicks;
-  // toasts themselves opt back in with pointer-events-auto.
+  // toasts themselves opt back in with pointer-events-auto. While the expense drawer is
+  // open, index.css moves the viewport clear of it (.toast-viewport).
   <ToastPrimitives.Viewport
     ref={ref}
     className={cn(
-      "pointer-events-none fixed inset-x-0 top-[60px] z-[100] mx-auto flex max-h-[calc(100vh-60px)] w-full flex-col p-4 sm:max-w-[420px]",
+      "toast-viewport pointer-events-none fixed inset-x-0 top-[60px] z-[100] mx-auto flex max-h-[calc(100vh-60px)] w-full flex-col p-4 sm:max-w-[420px]",
       className
     )}
     {...props}

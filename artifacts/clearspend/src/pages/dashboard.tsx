@@ -15,12 +15,32 @@ import {
   AlertTriangle,
   Copy,
   ShieldAlert,
+  Clock,
 } from "lucide-react";
 import { initialMockExpenses, Expense, ExpenseStatus } from "@/data/mock-expenses";
 import { ConfidenceBadge, RecommendationBadge, RiskBadge, StatusBadge } from "@/components/badges";
 import { formatCurrency, cn, focusRing } from "@/lib/utils";
 import { ExpenseDrawer } from "@/components/expense-drawer";
 import { useToast } from "@/hooks/use-toast";
+import { ToastAction } from "@/components/ui/toast";
+import {
+  REQUEST_COPY,
+  awaitingTypes,
+  closeRequests,
+  closedTypes,
+  describeRequestTypes,
+  isAwaiting,
+  pluralize,
+  reopenRequests,
+  type RequestType,
+  type RequestsByExpense,
+  type ReviewDecision,
+} from "@/lib/requests";
+
+// Toasts that offer Undo stay up a little longer than the 5s default.
+const UNDO_TOAST_DURATION = 8000;
+
+const capitalize = (text: string) => text.charAt(0).toUpperCase() + text.slice(1);
 
 type FilterTab = "All" | "Low Risk" | "Needs Review" | "High Risk";
 type SortOption = "Date" | "Amount" | "Risk";
@@ -33,8 +53,16 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<SortOption>("Risk");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drawerExpenseId, setDrawerExpenseId] = useState<string | null>(null);
+  // Simulated follow-up requests, kept separate from each expense's review status.
+  const [requests, setRequests] = useState<RequestsByExpense>({});
   // Element to return focus to when the drawer closes.
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
+
+  // Latest state for toast Undo handlers, which run after later renders.
+  const expensesRef = useRef(expenses);
+  expensesRef.current = expenses;
+  const requestsRef = useRef(requests);
+  requestsRef.current = requests;
 
   const stats = useMemo(() => {
     const pending = expenses.filter(e => e.status === "Pending");
@@ -113,26 +141,130 @@ export default function Dashboard() {
     setDrawerExpenseId(id);
   };
 
-  const handleAction = (id: string, action: ExpenseStatus) => {
-    setExpenses(prev => prev.map(e => e.id === id ? { ...e, status: action } : e));
-    setSelectedIds(prev => {
-      if (!prev.has(id)) return prev;
-      const next = new Set(prev);
-      next.delete(id);
+  // Restore expenses to Pending Review and reopen the requests their decision closed.
+  // With no `decision`, any approved or rejected expense among `ids` is restored.
+  const undoDecision = (ids: string[], decision?: ReviewDecision) => {
+    const targets = expensesRef.current.filter(e =>
+      ids.includes(e.id) && e.status !== "Pending" && (!decision || e.status === decision)
+    );
+    if (targets.length === 0) return;
+    const targetIds = new Set(targets.map(e => e.id));
+    const reopened = targets.flatMap(e => closedTypes(requestsRef.current[e.id]));
+
+    setExpenses(prev => prev.map(e => targetIds.has(e.id) ? { ...e, status: "Pending" } : e));
+    setRequests(prev => {
+      const next = { ...prev };
+      targetIds.forEach(id => { if (next[id]) next[id] = reopenRequests(next[id]); });
       return next;
     });
-    if (action !== "Pending") {
-      toast({ title: `Expense ${action}`, description: `Marked as ${action.toLowerCase()}.` });
-    }
+
+    const statuses = new Set(targets.map(e => e.status));
+    const title = statuses.size === 1
+      ? `${targets[0].status === "Approved" ? "Approval" : "Rejection"} undone`
+      : "Decisions undone";
+    const single = targets.length === 1 ? targets[0] : null;
+    const reopenedText = reopened.length === 0 ? "" : single
+      ? ` ${capitalize(describeRequestTypes(reopened))} reopened.`
+      : ` ${pluralize(reopened.length, "request")} reopened.`;
+    toast({
+      title,
+      description: `${single ? `${single.merchant} is` : `${pluralize(targets.length, "expense")} are`} back in Pending Review.${reopenedText}`,
+    });
   };
 
-  const handleBulkAction = (action: ExpenseStatus) => {
-    const ids = new Set(actionableSelectedIds);
-    const count = ids.size;
-    if (count === 0) return;
-    setExpenses(prev => prev.map(e => ids.has(e.id) ? { ...e, status: action } : e));
-    setSelectedIds(new Set());
-    toast({ title: `${count} ${count === 1 ? "expense" : "expenses"} ${action.toLowerCase()}`, description: `Bulk action applied successfully.` });
+  // Approve or reject pending expenses, closing any open requests, with a one-step Undo.
+  const decide = (ids: string[], decision: ReviewDecision) => {
+    const targets = expensesRef.current.filter(e => ids.includes(e.id) && e.status === "Pending");
+    if (targets.length === 0) return;
+    const targetIds = new Set(targets.map(e => e.id));
+    const closed = targets.flatMap(e => awaitingTypes(requestsRef.current[e.id]));
+
+    setExpenses(prev => prev.map(e => targetIds.has(e.id) ? { ...e, status: decision } : e));
+    setRequests(prev => {
+      const next = { ...prev };
+      targetIds.forEach(id => { if (next[id]) next[id] = closeRequests(next[id], decision); });
+      return next;
+    });
+    setSelectedIds(prev => {
+      if (!targets.some(e => prev.has(e.id))) return prev;
+      const next = new Set(prev);
+      targetIds.forEach(id => next.delete(id));
+      return next;
+    });
+
+    const verb = decision.toLowerCase();
+    const noun = decision === "Approved" ? "approval" : "rejection";
+    const single = targets.length === 1 ? targets[0] : null;
+    const closedText = closed.length === 0 ? "" : single
+      ? ` Open ${describeRequestTypes(closed)} closed.`
+      : ` ${pluralize(closed.length, "open request")} closed.`;
+    const undoIds = [...targetIds];
+    toast({
+      title: single ? `Expense ${verb}` : `${pluralize(targets.length, "expense")} ${verb}`,
+      description: single
+        ? `${single.merchant} · ${formatCurrency(single.amount)} from ${single.employeeName}.${closedText}`
+        : `Moved out of Pending Review.${closedText}`,
+      duration: UNDO_TOAST_DURATION,
+      action: (
+        <ToastAction
+          altText={`Undo ${noun}`}
+          aria-label={single ? `Undo ${noun} of ${single.merchant}` : `Undo ${noun} of ${pluralize(targets.length, "expense")}`}
+          onClick={() => undoDecision(undoIds, decision)}
+        >
+          Undo
+        </ToastAction>
+      ),
+    });
+  };
+
+  const handleAction = (id: string, action: ExpenseStatus) => {
+    if (action === "Pending") undoDecision([id]);
+    else decide([id], action);
+  };
+
+  const handleBulkAction = (action: ReviewDecision) => {
+    decide(actionableSelectedIds, action);
+  };
+
+  // The row's Approve/Reject buttons unmount after an action; keep keyboard focus in the row.
+  const handleRowAction = (e: React.MouseEvent<HTMLButtonElement>, id: string, action: ReviewDecision) => {
+    e.stopPropagation();
+    const row = e.currentTarget.closest("tr");
+    const hadFocus = e.currentTarget === document.activeElement;
+    handleAction(id, action);
+    if (hadFocus) requestAnimationFrame(() => row?.querySelector<HTMLElement>("[data-drawer-trigger]")?.focus());
+  };
+
+  const sendRequest = (id: string, type: RequestType, message: string) => {
+    const expense = expensesRef.current.find(e => e.id === id);
+    if (!expense || expense.status !== "Pending") return;
+    const copy = REQUEST_COPY[type];
+    // One open request of each type per expense.
+    if (isAwaiting(requestsRef.current[id]?.[type])) {
+      toast({ title: `${copy.requested} already`, description: `${expense.employeeName} already has an open ${copy.name} for ${expense.merchant}.` });
+      return;
+    }
+    setRequests(prev => ({
+      ...prev,
+      [id]: { ...prev[id], [type]: { type, status: "awaiting_employee", message, requestedAt: Date.now() } },
+    }));
+    toast({
+      title: copy.requested,
+      description: `Simulated request to ${expense.employeeName}; no message was sent. ${expense.merchant} stays in Pending Review.`,
+    });
+  };
+
+  const cancelRequest = (id: string, type: RequestType) => {
+    const expense = expensesRef.current.find(e => e.id === id);
+    if (!expense || !isAwaiting(requestsRef.current[id]?.[type])) return;
+    setRequests(prev => {
+      const { [type]: _removed, ...rest } = prev[id] ?? {};
+      return { ...prev, [id]: rest };
+    });
+    toast({
+      title: `${capitalize(REQUEST_COPY[type].name)} cancelled`,
+      description: `${expense.merchant} stays in Pending Review.`,
+    });
   };
 
   const getAvatarColor = (name: string) => {
@@ -371,12 +503,26 @@ export default function Dashboard() {
                               type="button"
                               data-drawer-trigger
                               onClick={(e) => { e.stopPropagation(); openDrawer(expense.id, e.currentTarget); }}
-                              aria-label={`${expense.employeeName}: view details for ${expense.merchant}, ${formatCurrency(expense.amount)}`}
+                              aria-label={[
+                                `${expense.employeeName}: view details for ${expense.merchant}, ${formatCurrency(expense.amount)}`,
+                                ...(isProcessed ? [] : awaitingTypes(requests[expense.id]).map(type => REQUEST_COPY[type].awaiting.toLowerCase())),
+                              ].join(", ")}
                               className={cn("block text-left text-[13px] font-medium text-slate-800 leading-tight rounded-sm", focusRing)}
                             >
                               {expense.employeeName}
                             </button>
-                            <div className="text-[11px] text-slate-400 mt-0.5">{expense.category}</div>
+                            <div className="flex items-center gap-1.5 mt-0.5 whitespace-nowrap">
+                              <span className="text-[11px] text-slate-400">{expense.category}</span>
+                              {!isProcessed && awaitingTypes(requests[expense.id]).map(type => (
+                                <span
+                                  key={type}
+                                  className="inline-flex items-center gap-1 rounded-full border border-sky-200 bg-sky-50 px-1.5 text-[10px] font-medium leading-[14px] text-sky-700"
+                                >
+                                  <Clock className="w-2.5 h-2.5" aria-hidden="true" />
+                                  {REQUEST_COPY[type].awaiting}
+                                </span>
+                              ))}
+                            </div>
                           </div>
                         </div>
                       </td>
@@ -415,7 +561,7 @@ export default function Dashboard() {
                             <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); handleAction(expense.id, "Approved"); }}
+                                onClick={(e) => handleRowAction(e, expense.id, "Approved")}
                                 className={cn("text-[11px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-medium flex items-center gap-1 transition-colors", focusRing)}
                                 title="Approve"
                                 aria-label={`Approve ${expense.employeeName}, ${expense.merchant}`}
@@ -424,7 +570,7 @@ export default function Dashboard() {
                               </button>
                               <button
                                 type="button"
-                                onClick={(e) => { e.stopPropagation(); handleAction(expense.id, "Rejected"); }}
+                                onClick={(e) => handleRowAction(e, expense.id, "Rejected")}
                                 className={cn("text-[11px] px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-medium flex items-center gap-1 transition-colors", focusRing)}
                                 title="Reject"
                                 aria-label={`Reject ${expense.employeeName}, ${expense.merchant}`}
@@ -513,6 +659,9 @@ export default function Dashboard() {
         onClose={() => setDrawerExpenseId(null)}
         onAction={handleAction}
         returnFocusRef={drawerTriggerRef}
+        requests={requests}
+        onSendRequest={sendRequest}
+        onCancelRequest={cancelRequest}
       />
     </div>
   );

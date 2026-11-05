@@ -12,11 +12,21 @@ import {
   MailQuestion,
   ShieldAlert,
   Lightbulb,
+  Clock,
+  Archive,
 } from "lucide-react";
 import { Expense, ExpenseStatus } from "@/data/mock-expenses";
-import { FlagChip, RiskBadge } from "./badges";
+import { RiskBadge } from "./badges";
+import { RequestComposer } from "./request-composer";
 import { formatCurrency, cn, focusRing } from "@/lib/utils";
-import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
+import {
+  REQUEST_COPY,
+  REQUEST_TYPES,
+  isAwaiting,
+  type RequestType,
+  type RequestsByExpense,
+} from "@/lib/requests";
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 
 interface ExpenseDrawerProps {
   expense: Expense | null;
@@ -25,6 +35,24 @@ interface ExpenseDrawerProps {
   onAction: (id: string, action: ExpenseStatus) => void;
   // Element to focus when the drawer closes (usually the control that opened it).
   returnFocusRef?: RefObject<HTMLElement | null>;
+  requests: RequestsByExpense;
+  onSendRequest: (id: string, type: RequestType, message: string) => void;
+  onCancelRequest: (id: string, type: RequestType) => void;
+}
+
+const triggerId = (type: RequestType) => `request-trigger-${type}`;
+const statusId = (type: RequestType) => `request-status-${type}`;
+
+// Publishes the footer's height as --drawer-footer-height so narrow-screen toasts can sit
+// just above the drawer's actions (see .toast-viewport in index.css).
+function trackFooterHeight(footer: HTMLDivElement | null) {
+  if (!footer) return;
+  const root = document.documentElement;
+  const update = () => root.style.setProperty("--drawer-footer-height", `${footer.offsetHeight}px`);
+  update();
+  const observer = new ResizeObserver(update);
+  observer.observe(footer);
+  return () => observer.disconnect();
 }
 
 const FOCUSABLE =
@@ -121,29 +149,74 @@ function getConfidenceLabel(level: string): string {
   return "Low confidence · Manual review required";
 }
 
-export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onAction, returnFocusRef }: ExpenseDrawerProps) {
+export function ExpenseDrawer({
+  expense: currentExpense,
+  isOpen,
+  onClose,
+  onAction,
+  returnFocusRef,
+  requests: requestsByExpense,
+  onSendRequest,
+  onCancelRequest,
+}: ExpenseDrawerProps) {
   const panelRef = useRef<HTMLDivElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
   const wasOpenRef = useRef(false);
+  // Request composer currently open in the drawer, if any.
+  const [composerType, setComposerType] = useState<RequestType | null>(null);
+  // Id of an element to focus after the next render (falls back to the panel).
+  const focusNextRef = useRef<string | null>(null);
 
   // Keep showing the last expense while the drawer animates out after the prop is cleared.
   const lastExpenseRef = useRef<Expense | null>(currentExpense);
   if (currentExpense) lastExpenseRef.current = currentExpense;
   const shownExpense = currentExpense ?? lastExpenseRef.current;
 
+  // A different expense, or closing the drawer, discards an unsent request.
+  useEffect(() => {
+    setComposerType(null);
+  }, [isOpen, shownExpense?.id]);
+
+  const closeComposer = (focusId: string) => {
+    focusNextRef.current = focusId;
+    setComposerType(null);
+  };
+
+  useEffect(() => {
+    const id = focusNextRef.current;
+    if (!id) return;
+    focusNextRef.current = null;
+    const el = document.getElementById(id);
+    (el && !el.hasAttribute("disabled") ? el : panelRef.current)?.focus();
+  });
+
   useEffect(() => {
     if (!isOpen) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-      // If focus has left the drawer (e.g. the focused button unmounted), bring it back.
-      const panel = panelRef.current;
-      if (e.key === "Tab" && panel && !panel.contains(document.activeElement)) {
+      if (e.key === "Escape") {
+        // Escape closes the request composer first, then the drawer.
+        if (composerType) closeComposer(triggerId(composerType));
+        else onClose();
+        return;
+      }
+      // If focus has left the active dialog (e.g. the focused button unmounted), bring it back.
+      const container = composerRef.current ?? panelRef.current;
+      if (e.key === "Tab" && container && !container.contains(document.activeElement)) {
         e.preventDefault();
-        (panel.querySelector<HTMLElement>(FOCUSABLE) ?? panel).focus();
+        (container.querySelector<HTMLElement>(FOCUSABLE) ?? container).focus();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, composerType]);
+
+  // Marks the page while the drawer is open so toasts move clear of it (see index.css).
+  useEffect(() => {
+    if (!isOpen) return;
+    const root = document.documentElement;
+    root.setAttribute("data-drawer-open", "");
+    return () => root.removeAttribute("data-drawer-open");
+  }, [isOpen]);
 
   // Move focus into the drawer on open; return it to the opener on close.
   useEffect(() => {
@@ -158,13 +231,15 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
 
   // Keep Tab and Shift+Tab cycling within the drawer while it is open.
   const trapFocus = (e: ReactKeyboardEvent<HTMLDivElement>) => {
-    if (e.key !== "Tab" || !panelRef.current) return;
-    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    // While the request composer is open, the trap cycles within it instead.
+    const container = composerRef.current ?? panelRef.current;
+    if (e.key !== "Tab" || !container) return;
+    const focusable = Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE));
     if (focusable.length === 0) return;
     const first = focusable[0];
     const last = focusable[focusable.length - 1];
     const active = document.activeElement;
-    if (e.shiftKey && (active === first || active === panelRef.current)) {
+    if (e.shiftKey && (active === first || active === container)) {
       e.preventDefault();
       last.focus();
     } else if (!e.shiftKey && active === last) {
@@ -181,6 +256,27 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
   const recommendedAction = getRecommendedAction(expense);
   const aiSummary = getAiSummary(expense);
   const confidenceLabel = getConfidenceLabel(expense.aiConfidence);
+
+  const requests = requestsByExpense[expense.id] ?? {};
+  const requestList = REQUEST_TYPES.flatMap(type => requests[type] ?? []);
+  const clarificationAwaiting = isAwaiting(requests.clarification);
+  const receiptAwaiting = isAwaiting(requests.receipt);
+
+  const openComposer = (type: RequestType) => {
+    // Guard against duplicates even if a stale control is activated.
+    if (isProcessed || isAwaiting(requests[type])) return;
+    setComposerType(type);
+  };
+
+  const sendRequest = (type: RequestType, message: string) => {
+    onSendRequest(expense.id, type, message);
+    closeComposer(statusId(type));
+  };
+
+  const cancelRequest = (type: RequestType) => {
+    onCancelRequest(expense.id, type);
+    focusNextRef.current = triggerId(type);
+  };
 
   const accentColor = {
     High: "bg-rose-500",
@@ -214,13 +310,16 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
             transition={{ ease: "easeOut", duration: 0.26 }}
             className="fixed top-0 right-0 h-full w-full max-w-[480px] bg-white border-l border-slate-200 z-50 flex flex-col shadow-2xl outline-none"
           >
+            {/* Drawer content; inert while the request composer is open. */}
+            <div className="flex flex-col flex-1 min-h-0" inert={composerType !== null}>
             {/* Top accent */}
             <div className={cn("h-[3px] w-full flex-shrink-0", accentColor)} />
 
             {/* Header */}
-            <div className="flex items-start justify-between px-6 pt-5 pb-3">
-              <div className="flex-1 pr-10">
-                <h2 id="expense-drawer-title" className="text-[17px] font-semibold text-slate-900 tracking-tight leading-tight">
+            {/* The close button sits in the row (not absolutely positioned) so it never overlaps the amount. */}
+            <div className="flex items-start gap-3 pl-6 pr-4 pt-5 pb-3">
+              <div className="flex-1 min-w-0">
+                <h2 id="expense-drawer-title" className="text-[17px] font-semibold text-slate-900 tracking-tight leading-tight break-words">
                   {expense.merchant}
                 </h2>
                 <p id="expense-drawer-subtitle" className="text-[12px] text-slate-400 mt-0.5">{expense.employeeName} · {expense.category}</p>
@@ -233,7 +332,7 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
                 type="button"
                 onClick={onClose}
                 aria-label="Close expense details"
-                className={cn("absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors", focusRing)}
+                className={cn("flex-shrink-0 -mt-1 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors", focusRing)}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -277,6 +376,60 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
                 </div>
               )}
 
+              {/* ── Follow-up requests (simulated) ── */}
+              {requestList.length > 0 && (
+                <section aria-labelledby="follow-up-requests-heading">
+                  <div className="flex items-baseline justify-between gap-3 mb-2">
+                    <h3 id="follow-up-requests-heading" className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest">Follow-up Requests</h3>
+                    <span className="text-[10px] text-slate-400">Simulated · no message sent</span>
+                  </div>
+                  <ul className="space-y-2">
+                    {requestList.map(request => {
+                      const copy = REQUEST_COPY[request.type];
+                      const awaiting = request.status === "awaiting_employee";
+                      return (
+                        <li
+                          key={request.type}
+                          id={statusId(request.type)}
+                          tabIndex={-1}
+                          className={cn(
+                            "rounded-lg border p-3 flex items-start gap-2.5 outline-none focus-visible:ring-2 focus-visible:ring-blue-500",
+                            awaiting ? "border-sky-200 bg-sky-50/70" : "border-slate-200 bg-slate-50"
+                          )}
+                        >
+                          {awaiting
+                            ? <Clock className="w-4 h-4 text-sky-600 flex-shrink-0 mt-px" aria-hidden="true" />
+                            : <Archive className="w-4 h-4 text-slate-400 flex-shrink-0 mt-px" aria-hidden="true" />}
+                          <div className="flex-1 min-w-0">
+                            <p className={cn("text-[13px] font-semibold leading-tight", awaiting ? "text-sky-900" : "text-slate-600")}>
+                              {awaiting ? copy.awaiting : `${copy.requested} · closed`}
+                            </p>
+                            <p className="text-[11px] text-slate-500 mt-0.5 leading-snug">
+                              {awaiting
+                                ? `Requested ${formatDistanceToNow(request.requestedAt, { addSuffix: true })} · expense stays in Pending Review`
+                                : `Closed when this expense was ${request.closedBy?.toLowerCase()}. Undo reopens it.`}
+                            </p>
+                            <p className="text-[12px] text-slate-600 mt-1.5 leading-snug break-words">
+                              {request.message ? `"${request.message}"` : <span className="italic text-slate-400">No message included.</span>}
+                            </p>
+                          </div>
+                          {awaiting && !isProcessed && (
+                            <button
+                              type="button"
+                              onClick={() => cancelRequest(request.type)}
+                              aria-label={`Cancel ${copy.name}`}
+                              className={cn("flex-shrink-0 text-[11px] font-medium text-slate-500 hover:text-slate-800 border border-slate-200 bg-white hover:bg-slate-50 rounded-md px-2 py-1 transition-colors", focusRing)}
+                            >
+                              Cancel
+                            </button>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </section>
+              )}
+
               {/* Receipt */}
               <div>
                 <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-widest mb-2">Receipt</p>
@@ -295,10 +448,23 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
                     <>
                       <AlertTriangle className="w-6 h-6 text-rose-400" />
                       <span className="text-[12px] text-rose-600 font-semibold">No Receipt Provided</span>
-                      <button type="button" className={cn("mt-1 text-[11px] font-semibold text-rose-600 border border-rose-300 bg-white hover:bg-rose-50 transition-colors rounded-md px-3 py-1 flex items-center gap-1.5", focusRing)}>
-                        <MailQuestion className="w-3 h-3" />
-                        Request receipt from employee
-                      </button>
+                      {receiptAwaiting ? (
+                        <span className="mt-1 text-[11px] font-semibold text-sky-700 border border-sky-200 bg-sky-50 rounded-md px-3 py-1 flex items-center gap-1.5">
+                          <Clock className="w-3 h-3" aria-hidden="true" />
+                          Receipt requested · awaiting employee
+                        </span>
+                      ) : !isProcessed && (
+                        <button
+                          type="button"
+                          id={triggerId("receipt")}
+                          onClick={() => openComposer("receipt")}
+                          aria-haspopup="dialog"
+                          className={cn("mt-1 text-[11px] font-semibold text-rose-600 border border-rose-300 bg-white hover:bg-rose-50 transition-colors rounded-md px-3 py-1 flex items-center gap-1.5", focusRing)}
+                        >
+                          <MailQuestion className="w-3 h-3" aria-hidden="true" />
+                          {REQUEST_COPY.receipt.action}
+                        </button>
+                      )}
                     </>
                   )}
                 </div>
@@ -395,16 +561,22 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
 
             {/* ── Action Footer ── */}
             {!isProcessed && (
-              <div className="flex-shrink-0 px-5 py-4 border-t border-slate-100 bg-slate-50/60 space-y-2.5">
+              <div ref={trackFooterHeight} className="flex-shrink-0 px-5 py-4 border-t border-slate-100 bg-slate-50/60 space-y-2.5">
 
                 {/* Primary: Clarification for risky, Approve for safe */}
                 {isHighRisk ? (
                   <>
                     <button
                       type="button"
-                      className={cn("w-full h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-sm", focusRing)}
+                      id={triggerId("clarification")}
+                      onClick={() => openComposer("clarification")}
+                      disabled={clarificationAwaiting}
+                      aria-haspopup="dialog"
+                      className={cn("w-full h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-sm disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:shadow-none", focusRing)}
                     >
-                      <MailQuestion className="w-4 h-4" /> Request Clarification
+                      {clarificationAwaiting
+                        ? <><Clock className="w-4 h-4" aria-hidden="true" /> {REQUEST_COPY.clarification.requested}</>
+                        : <><MailQuestion className="w-4 h-4" aria-hidden="true" /> {REQUEST_COPY.clarification.action}</>}
                     </button>
                     <button
                       type="button"
@@ -440,9 +612,15 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
                       </button>
                       <button
                         type="button"
-                        className={cn("flex-1 h-9 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5", focusRing)}
+                        id={triggerId("clarification")}
+                        onClick={() => openComposer("clarification")}
+                        disabled={clarificationAwaiting}
+                        aria-haspopup="dialog"
+                        className={cn("flex-1 h-9 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5 whitespace-nowrap disabled:cursor-not-allowed disabled:bg-slate-100 disabled:text-slate-500 disabled:hover:bg-slate-100", focusRing)}
                       >
-                        <MailQuestion className="w-3.5 h-3.5" /> Ask Employee
+                        {clarificationAwaiting
+                          ? <><Clock className="w-3.5 h-3.5" aria-hidden="true" /> {REQUEST_COPY.clarification.requested}</>
+                          : <><MailQuestion className="w-3.5 h-3.5" aria-hidden="true" /> {REQUEST_COPY.clarification.action}</>}
                       </button>
                     </div>
                   </>
@@ -452,7 +630,7 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
             )}
 
             {isProcessed && (
-              <div className="flex-shrink-0 px-5 py-4 border-t border-slate-100 bg-white">
+              <div ref={trackFooterHeight} className="flex-shrink-0 px-5 py-4 border-t border-slate-100 bg-white">
                 <button
                   type="button"
                   onClick={() => { onAction(expense.id, "Pending"); panelRef.current?.focus(); }}
@@ -461,6 +639,18 @@ export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onActi
                   Undo action
                 </button>
               </div>
+            )}
+            </div>
+
+            {composerType && (
+              <RequestComposer
+                key={`${expense.id}-${composerType}`}
+                ref={composerRef}
+                type={composerType}
+                expense={expense}
+                onSend={(message) => sendRequest(composerType, message)}
+                onCancel={() => closeComposer(triggerId(composerType))}
+              />
             )}
 
           </motion.div>

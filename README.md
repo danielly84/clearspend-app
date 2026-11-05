@@ -9,13 +9,14 @@ The demo covers:
 - Risk filter tabs and sorting by risk, amount, or date
 - Row selection with bulk approve and reject
 - An expense detail drawer with receipt status, employee note, and the recommendation's reasoning, plus approve, reject, and undo actions
-- Toast confirmations for approvals and rejections
+- Simulated follow-up requests: ask the employee for clarification or a missing receipt, track them as "Awaiting clarification" or "Awaiting receipt", and cancel them. No message is actually sent.
+- Toast confirmations with a one-step Undo for row, drawer, and bulk approvals and rejections
 
-The drawer's "Request Clarification" and "Request receipt from employee" buttons are visual placeholders and don't perform an action yet.
+Follow-up requests are tracked separately from an expense's review status: an expense with an open request stays in Pending Review. Approving or rejecting it closes its open requests, and undoing that decision reopens them.
 
 ## Mock data and state
 
-There is no backend. The ten expenses, including their risk levels, confidence ratings, recommendations, and reasoning, are static mock data in [`artifacts/clearspend/src/data/mock-expenses.ts`](artifacts/clearspend/src/data/mock-expenses.ts); no AI model or external API is called. Approvals, rejections, and selections live in React state in the browser and reset on reload.
+There is no backend. The ten expenses, including their risk levels, confidence ratings, recommendations, and reasoning, are static mock data in [`artifacts/clearspend/src/data/mock-expenses.ts`](artifacts/clearspend/src/data/mock-expenses.ts); no AI model or external API is called. Approvals, rejections, follow-up requests, and selections live in React state in the browser and reset on reload.
 
 ## Tech stack
 
