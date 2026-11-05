@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import {
@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { initialMockExpenses, Expense, ExpenseStatus } from "@/data/mock-expenses";
 import { ConfidenceBadge, RecommendationBadge, RiskBadge, StatusBadge } from "@/components/badges";
-import { formatCurrency, cn } from "@/lib/utils";
+import { formatCurrency, cn, focusRing } from "@/lib/utils";
 import { ExpenseDrawer } from "@/components/expense-drawer";
 import { useToast } from "@/hooks/use-toast";
 
@@ -33,6 +33,8 @@ export default function Dashboard() {
   const [sortBy, setSortBy] = useState<SortOption>("Risk");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drawerExpenseId, setDrawerExpenseId] = useState<string | null>(null);
+  // Element to return focus to when the drawer closes.
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
 
   const stats = useMemo(() => {
     const pending = expenses.filter(e => e.status === "Pending");
@@ -75,12 +77,27 @@ export default function Dashboard() {
     return filtered;
   }, [expenses, activeTab, sortBy]);
 
+  // Only pending expenses in the current view can be selected or bulk-actioned.
+  const selectableIds = useMemo(
+    () => filteredAndSortedExpenses.filter(e => e.status === "Pending").map(e => e.id),
+    [filteredAndSortedExpenses]
+  );
+  const actionableSelectedIds = useMemo(
+    () => selectableIds.filter(id => selectedIds.has(id)),
+    [selectableIds, selectedIds]
+  );
+  const selectedCount = actionableSelectedIds.length;
+  const allSelected = selectableIds.length > 0 && selectedCount === selectableIds.length;
+  const someSelected = selectedCount > 0 && !allSelected;
+
+  const changeTab = (tab: FilterTab) => {
+    setActiveTab(tab);
+    // A new filter starts a new selection, so hidden rows can't be bulk-actioned.
+    setSelectedIds(new Set());
+  };
+
   const toggleSelectAll = () => {
-    if (selectedIds.size === filteredAndSortedExpenses.length) {
-      setSelectedIds(new Set());
-    } else {
-      setSelectedIds(new Set(filteredAndSortedExpenses.map(e => e.id)));
-    }
+    setSelectedIds(allSelected ? new Set() : new Set(selectableIds));
   };
 
   const toggleSelectRow = (id: string, e: React.SyntheticEvent) => {
@@ -91,18 +108,31 @@ export default function Dashboard() {
     setSelectedIds(newSet);
   };
 
+  const openDrawer = (id: string, trigger: HTMLElement | null) => {
+    drawerTriggerRef.current = trigger;
+    setDrawerExpenseId(id);
+  };
+
   const handleAction = (id: string, action: ExpenseStatus) => {
     setExpenses(prev => prev.map(e => e.id === id ? { ...e, status: action } : e));
+    setSelectedIds(prev => {
+      if (!prev.has(id)) return prev;
+      const next = new Set(prev);
+      next.delete(id);
+      return next;
+    });
     if (action !== "Pending") {
       toast({ title: `Expense ${action}`, description: `Marked as ${action.toLowerCase()}.` });
     }
   };
 
   const handleBulkAction = (action: ExpenseStatus) => {
-    const count = selectedIds.size;
-    setExpenses(prev => prev.map(e => selectedIds.has(e.id) ? { ...e, status: action } : e));
+    const ids = new Set(actionableSelectedIds);
+    const count = ids.size;
+    if (count === 0) return;
+    setExpenses(prev => prev.map(e => ids.has(e.id) ? { ...e, status: action } : e));
     setSelectedIds(new Set());
-    toast({ title: `${count} expenses ${action.toLowerCase()}`, description: `Bulk action applied successfully.` });
+    toast({ title: `${count} ${count === 1 ? "expense" : "expenses"} ${action.toLowerCase()}`, description: `Bulk action applied successfully.` });
   };
 
   const getAvatarColor = (name: string) => {
@@ -153,7 +183,8 @@ export default function Dashboard() {
         </div>
       </header>
 
-      <main className="flex-1 max-w-[1400px] w-full mx-auto p-4 md:p-6 lg:p-8 space-y-5">
+      {/* Extra bottom padding while the bulk bar is visible keeps the last rows reachable. */}
+      <main className={cn("flex-1 max-w-[1400px] w-full mx-auto p-4 md:p-6 lg:p-8 space-y-5", selectedCount > 0 && "pb-28 md:pb-28 lg:pb-28")}>
 
         {/* AI Summary Banner */}
         {aiSummary.flagged > 0 && (
@@ -239,9 +270,12 @@ export default function Dashboard() {
             {(["All", "Low Risk", "Needs Review", "High Risk"] as FilterTab[]).map(tab => (
               <button
                 key={tab}
-                onClick={() => setActiveTab(tab)}
+                type="button"
+                onClick={() => changeTab(tab)}
+                aria-pressed={activeTab === tab}
                 className={cn(
-                  "text-[13px] pb-2.5 transition-colors whitespace-nowrap",
+                  "text-[13px] pb-2.5 transition-colors whitespace-nowrap rounded-sm",
+                  focusRing,
                   activeTab === tab
                     ? "border-b-2 border-blue-600 text-slate-900 font-semibold"
                     : "text-slate-400 hover:text-slate-600 border-b-2 border-transparent font-medium"
@@ -255,7 +289,8 @@ export default function Dashboard() {
           <div className="flex items-center gap-2.5 pb-2">
             <div className="relative">
               <select
-                className="appearance-none bg-white border border-slate-200 text-slate-600 text-[12px] font-medium rounded-lg px-3 py-1.5 pr-7 hover:border-slate-300 focus:outline-none cursor-pointer transition-colors shadow-sm"
+                aria-label="Sort expenses"
+                className={cn("appearance-none bg-white border border-slate-200 text-slate-600 text-[12px] font-medium rounded-lg px-3 py-1.5 pr-7 hover:border-slate-300 cursor-pointer transition-colors shadow-sm", focusRing)}
                 value={sortBy}
                 onChange={(e) => setSortBy(e.target.value as SortOption)}
               >
@@ -277,8 +312,11 @@ export default function Dashboard() {
                   <th className="py-3 px-5 w-10">
                     <input
                       type="checkbox"
-                      className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                      checked={selectedIds.size === filteredAndSortedExpenses.length && filteredAndSortedExpenses.length > 0}
+                      aria-label="Select all pending expenses in this view"
+                      className={cn("w-3.5 h-3.5 rounded border-slate-300 text-blue-600 cursor-pointer disabled:cursor-not-allowed", focusRing)}
+                      checked={allSelected}
+                      ref={el => { if (el) el.indeterminate = someSelected; }}
+                      disabled={selectableIds.length === 0}
                       onChange={toggleSelectAll}
                     />
                   </th>
@@ -299,7 +337,7 @@ export default function Dashboard() {
                   return (
                     <tr
                       key={expense.id}
-                      onClick={() => setDrawerExpenseId(expense.id)}
+                      onClick={(e) => openDrawer(expense.id, e.currentTarget.querySelector<HTMLElement>("[data-drawer-trigger]"))}
                       className={cn(
                         "group cursor-pointer transition-colors duration-100",
                         rowRiskStyle(expense),
@@ -313,8 +351,12 @@ export default function Dashboard() {
                       <td className="py-3.5 px-5">
                         <input
                           type="checkbox"
-                          className="w-3.5 h-3.5 rounded border-slate-300 text-blue-600 focus:ring-blue-500 cursor-pointer"
-                          checked={isSelected}
+                          aria-label={isProcessed
+                            ? `${expense.employeeName}, ${expense.merchant}: already ${expense.status.toLowerCase()}`
+                            : `Select ${expense.employeeName}, ${expense.merchant}`}
+                          className={cn("w-3.5 h-3.5 rounded border-slate-300 text-blue-600 cursor-pointer disabled:cursor-not-allowed", focusRing)}
+                          checked={isSelected && !isProcessed}
+                          disabled={isProcessed}
                           onChange={(e) => toggleSelectRow(expense.id, e)}
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -325,7 +367,15 @@ export default function Dashboard() {
                             {getInitials(expense.employeeName)}
                           </div>
                           <div>
-                            <div className="text-[13px] font-medium text-slate-800 leading-tight">{expense.employeeName}</div>
+                            <button
+                              type="button"
+                              data-drawer-trigger
+                              onClick={(e) => { e.stopPropagation(); openDrawer(expense.id, e.currentTarget); }}
+                              aria-label={`${expense.employeeName}: view details for ${expense.merchant}, ${formatCurrency(expense.amount)}`}
+                              className={cn("block text-left text-[13px] font-medium text-slate-800 leading-tight rounded-sm", focusRing)}
+                            >
+                              {expense.employeeName}
+                            </button>
                             <div className="text-[11px] text-slate-400 mt-0.5">{expense.category}</div>
                           </div>
                         </div>
@@ -361,18 +411,23 @@ export default function Dashboard() {
                           {isProcessed ? (
                             <StatusBadge status={expense.status} />
                           ) : (
-                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                            // Revealed on row hover, on keyboard focus inside the row, and always on touch devices.
+                            <div className="flex items-center gap-1.5 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
                               <button
+                                type="button"
                                 onClick={(e) => { e.stopPropagation(); handleAction(expense.id, "Approved"); }}
-                                className="text-[11px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-medium flex items-center gap-1 transition-colors"
+                                className={cn("text-[11px] px-2 py-1 rounded bg-emerald-50 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 font-medium flex items-center gap-1 transition-colors", focusRing)}
                                 title="Approve"
+                                aria-label={`Approve ${expense.employeeName}, ${expense.merchant}`}
                               >
                                 <Check className="w-3 h-3" /> Approve
                               </button>
                               <button
+                                type="button"
                                 onClick={(e) => { e.stopPropagation(); handleAction(expense.id, "Rejected"); }}
-                                className="text-[11px] px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-medium flex items-center gap-1 transition-colors"
+                                className={cn("text-[11px] px-2 py-1 rounded bg-rose-50 text-rose-700 hover:bg-rose-100 border border-rose-200 font-medium flex items-center gap-1 transition-colors", focusRing)}
                                 title="Reject"
+                                aria-label={`Reject ${expense.employeeName}, ${expense.merchant}`}
                               >
                                 <X className="w-3 h-3" /> Reject
                               </button>
@@ -404,36 +459,46 @@ export default function Dashboard() {
 
       {/* Sticky Bulk Action Bar */}
       <AnimatePresence>
-        {selectedIds.size > 0 && (
+        {selectedCount > 0 && (
+          // Full-width, click-through wrapper: the bar is centered without a 50%-width
+          // cap, so it never overflows narrow screens or blocks the table beside it.
           <motion.div
             initial={{ y: 80, opacity: 0 }}
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: 80, opacity: 0 }}
             transition={{ type: "spring", damping: 28, stiffness: 300 }}
-            className="fixed bottom-6 left-1/2 -translate-x-1/2 z-40"
+            className="pointer-events-none fixed inset-x-0 bottom-4 sm:bottom-6 z-40 flex justify-center px-4"
           >
-            <div className="flex items-center gap-3 bg-slate-900 text-white rounded-2xl px-5 py-3 shadow-2xl shadow-slate-900/40 border border-white/10">
-              <div className="flex items-center gap-2 mr-2">
-                <div className="w-5 h-5 rounded bg-blue-500 flex items-center justify-center text-[10px] font-bold">{selectedIds.size}</div>
-                <span className="text-[13px] font-medium text-slate-300">selected</span>
+            <div
+              role="toolbar"
+              aria-label="Bulk actions"
+              className="pointer-events-auto flex max-w-full items-center gap-2 sm:gap-3 bg-slate-900 text-white rounded-2xl px-3 sm:px-5 py-3 shadow-2xl shadow-slate-900/40 border border-white/10"
+            >
+              <div className="flex items-center gap-2 sm:mr-2" aria-live="polite">
+                <div className="w-5 h-5 rounded bg-blue-500 flex items-center justify-center text-[10px] font-bold">{selectedCount}</div>
+                <span className="text-[13px] font-medium text-slate-300 whitespace-nowrap">selected</span>
               </div>
               <div className="w-px h-5 bg-white/10" />
               <button
+                type="button"
                 onClick={() => handleBulkAction("Approved")}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg text-[12px] font-semibold transition-colors shadow-md shadow-emerald-500/30"
+                className={cn("flex items-center gap-1.5 px-3.5 py-1.5 bg-emerald-500 hover:bg-emerald-400 text-white rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors shadow-md shadow-emerald-500/30 focus-visible:ring-offset-slate-900", focusRing)}
               >
-                <Check className="w-3.5 h-3.5" /> Approve {selectedIds.size > 1 ? "All" : ""}
+                <Check className="w-3.5 h-3.5" /> <span>Approve{selectedCount > 1 && <span className="hidden sm:inline"> All</span>}</span>
               </button>
               <button
+                type="button"
                 onClick={() => handleBulkAction("Rejected")}
-                className="flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-white rounded-lg text-[12px] font-semibold transition-colors shadow-md shadow-rose-500/30"
+                className={cn("flex items-center gap-1.5 px-3.5 py-1.5 bg-rose-500 hover:bg-rose-400 text-white rounded-lg text-[12px] font-semibold whitespace-nowrap transition-colors shadow-md shadow-rose-500/30 focus-visible:ring-offset-slate-900", focusRing)}
               >
-                <XCircle className="w-3.5 h-3.5" /> Reject {selectedIds.size > 1 ? "All" : ""}
+                <XCircle className="w-3.5 h-3.5" /> <span>Reject{selectedCount > 1 && <span className="hidden sm:inline"> All</span>}</span>
               </button>
               <button
+                type="button"
                 onClick={() => setSelectedIds(new Set())}
-                className="p-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/10"
+                className={cn("p-1.5 text-slate-400 hover:text-white transition-colors rounded-lg hover:bg-white/10 focus-visible:ring-offset-slate-900", focusRing)}
                 title="Clear selection"
+                aria-label="Clear selection"
               >
                 <X className="w-4 h-4" />
               </button>
@@ -447,6 +512,7 @@ export default function Dashboard() {
         isOpen={drawerExpenseId !== null}
         onClose={() => setDrawerExpenseId(null)}
         onAction={handleAction}
+        returnFocusRef={drawerTriggerRef}
       />
     </div>
   );

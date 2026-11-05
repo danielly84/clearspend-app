@@ -15,15 +15,20 @@ import {
 } from "lucide-react";
 import { Expense, ExpenseStatus } from "@/data/mock-expenses";
 import { FlagChip, RiskBadge } from "./badges";
-import { formatCurrency, cn } from "@/lib/utils";
-import { useEffect } from "react";
+import { formatCurrency, cn, focusRing } from "@/lib/utils";
+import { useEffect, useRef, type KeyboardEvent as ReactKeyboardEvent, type RefObject } from "react";
 
 interface ExpenseDrawerProps {
   expense: Expense | null;
   isOpen: boolean;
   onClose: () => void;
   onAction: (id: string, action: ExpenseStatus) => void;
+  // Element to focus when the drawer closes (usually the control that opened it).
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }
+
+const FOCUSABLE =
+  'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
 
 function getRecommendedAction(expense: Expense): {
   label: string;
@@ -116,16 +121,60 @@ function getConfidenceLabel(level: string): string {
   return "Low confidence · Manual review required";
 }
 
-export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDrawerProps) {
-  useEffect(() => {
-    const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", handleEsc);
-    return () => window.removeEventListener("keydown", handleEsc);
-  }, [onClose]);
+export function ExpenseDrawer({ expense: currentExpense, isOpen, onClose, onAction, returnFocusRef }: ExpenseDrawerProps) {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const wasOpenRef = useRef(false);
 
-  if (!expense) return null;
+  // Keep showing the last expense while the drawer animates out after the prop is cleared.
+  const lastExpenseRef = useRef<Expense | null>(currentExpense);
+  if (currentExpense) lastExpenseRef.current = currentExpense;
+  const shownExpense = currentExpense ?? lastExpenseRef.current;
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      // If focus has left the drawer (e.g. the focused button unmounted), bring it back.
+      const panel = panelRef.current;
+      if (e.key === "Tab" && panel && !panel.contains(document.activeElement)) {
+        e.preventDefault();
+        (panel.querySelector<HTMLElement>(FOCUSABLE) ?? panel).focus();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen, onClose]);
+
+  // Move focus into the drawer on open; return it to the opener on close.
+  useEffect(() => {
+    if (isOpen) {
+      panelRef.current?.focus();
+    } else if (wasOpenRef.current) {
+      const target = returnFocusRef?.current;
+      if (target?.isConnected) target.focus();
+    }
+    wasOpenRef.current = isOpen;
+  }, [isOpen, returnFocusRef]);
+
+  // Keep Tab and Shift+Tab cycling within the drawer while it is open.
+  const trapFocus = (e: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (e.key !== "Tab" || !panelRef.current) return;
+    const focusable = Array.from(panelRef.current.querySelectorAll<HTMLElement>(FOCUSABLE));
+    if (focusable.length === 0) return;
+    const first = focusable[0];
+    const last = focusable[focusable.length - 1];
+    const active = document.activeElement;
+    if (e.shiftKey && (active === first || active === panelRef.current)) {
+      e.preventDefault();
+      last.focus();
+    } else if (!e.shiftKey && active === last) {
+      e.preventDefault();
+      first.focus();
+    }
+  };
+
+  if (!shownExpense) return null;
+  const expense = shownExpense;
 
   const isProcessed = expense.status !== "Pending";
   const isHighRisk = expense.riskLevel === "High";
@@ -152,11 +201,18 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
           />
 
           <motion.div
+            ref={panelRef}
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="expense-drawer-title"
+            aria-describedby="expense-drawer-subtitle"
+            tabIndex={-1}
+            onKeyDown={trapFocus}
             initial={{ x: "100%" }}
             animate={{ x: 0 }}
             exit={{ x: "100%" }}
             transition={{ ease: "easeOut", duration: 0.26 }}
-            className="fixed top-0 right-0 h-full w-full max-w-[480px] bg-white border-l border-slate-200 z-50 flex flex-col shadow-2xl"
+            className="fixed top-0 right-0 h-full w-full max-w-[480px] bg-white border-l border-slate-200 z-50 flex flex-col shadow-2xl outline-none"
           >
             {/* Top accent */}
             <div className={cn("h-[3px] w-full flex-shrink-0", accentColor)} />
@@ -164,18 +220,20 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
             {/* Header */}
             <div className="flex items-start justify-between px-6 pt-5 pb-3">
               <div className="flex-1 pr-10">
-                <h2 className="text-[17px] font-semibold text-slate-900 tracking-tight leading-tight">
+                <h2 id="expense-drawer-title" className="text-[17px] font-semibold text-slate-900 tracking-tight leading-tight">
                   {expense.merchant}
                 </h2>
-                <p className="text-[12px] text-slate-400 mt-0.5">{expense.employeeName} · {expense.category}</p>
+                <p id="expense-drawer-subtitle" className="text-[12px] text-slate-400 mt-0.5">{expense.employeeName} · {expense.category}</p>
               </div>
               <div className="text-right flex-shrink-0">
                 <div className="text-[20px] font-bold text-slate-900 tabular-nums">{formatCurrency(expense.amount)}</div>
                 <div className="text-[11px] text-slate-400 mt-0.5">{format(new Date(expense.date), 'MMM d, yyyy')}</div>
               </div>
               <button
+                type="button"
                 onClick={onClose}
-                className="absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors"
+                aria-label="Close expense details"
+                className={cn("absolute top-5 right-5 p-1.5 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-full transition-colors", focusRing)}
               >
                 <X className="w-4 h-4" />
               </button>
@@ -237,7 +295,7 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
                     <>
                       <AlertTriangle className="w-6 h-6 text-rose-400" />
                       <span className="text-[12px] text-rose-600 font-semibold">No Receipt Provided</span>
-                      <button className="mt-1 text-[11px] font-semibold text-rose-600 border border-rose-300 bg-white hover:bg-rose-50 transition-colors rounded-md px-3 py-1 flex items-center gap-1.5">
+                      <button type="button" className={cn("mt-1 text-[11px] font-semibold text-rose-600 border border-rose-300 bg-white hover:bg-rose-50 transition-colors rounded-md px-3 py-1 flex items-center gap-1.5", focusRing)}>
                         <MailQuestion className="w-3 h-3" />
                         Request receipt from employee
                       </button>
@@ -343,19 +401,22 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
                 {isHighRisk ? (
                   <>
                     <button
-                      className="w-full h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-sm"
+                      type="button"
+                      className={cn("w-full h-10 bg-slate-800 hover:bg-slate-700 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-sm", focusRing)}
                     >
                       <MailQuestion className="w-4 h-4" /> Request Clarification
                     </button>
                     <button
+                      type="button"
                       onClick={() => { onAction(expense.id, "Rejected"); onClose(); }}
-                      className="w-full h-10 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-md shadow-rose-600/20"
+                      className={cn("w-full h-10 bg-rose-600 hover:bg-rose-500 text-white rounded-lg font-semibold text-[13px] transition-colors flex items-center justify-center gap-2 shadow-md shadow-rose-600/20", focusRing)}
                     >
                       <XCircle className="w-4 h-4" /> Reject
                     </button>
                     <button
+                      type="button"
                       onClick={() => { onAction(expense.id, "Approved"); onClose(); }}
-                      className="w-full h-9 bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5"
+                      className={cn("w-full h-9 bg-white border border-slate-200 text-slate-500 hover:text-slate-700 hover:border-slate-300 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5", focusRing)}
                     >
                       <CheckCircle2 className="w-3.5 h-3.5" /> Approve anyway
                     </button>
@@ -363,20 +424,23 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
                 ) : (
                   <>
                     <button
+                      type="button"
                       onClick={() => { onAction(expense.id, "Approved"); onClose(); }}
-                      className="w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-[14px] transition-colors flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20"
+                      className={cn("w-full h-10 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-semibold text-[14px] transition-colors flex items-center justify-center gap-2 shadow-md shadow-emerald-600/20", focusRing)}
                     >
                       <CheckCircle2 className="w-4 h-4" /> Approve
                     </button>
                     <div className="flex gap-2">
                       <button
+                        type="button"
                         onClick={() => { onAction(expense.id, "Rejected"); onClose(); }}
-                        className="flex-1 h-9 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5"
+                        className={cn("flex-1 h-9 bg-white border border-rose-200 text-rose-700 hover:bg-rose-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5", focusRing)}
                       >
                         <XCircle className="w-3.5 h-3.5" /> Reject
                       </button>
                       <button
-                        className="flex-1 h-9 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5"
+                        type="button"
+                        className={cn("flex-1 h-9 bg-white border border-slate-200 text-slate-600 hover:bg-slate-50 rounded-lg font-medium text-[12px] transition-colors flex items-center justify-center gap-1.5", focusRing)}
                       >
                         <MailQuestion className="w-3.5 h-3.5" /> Ask Employee
                       </button>
@@ -390,8 +454,9 @@ export function ExpenseDrawer({ expense, isOpen, onClose, onAction }: ExpenseDra
             {isProcessed && (
               <div className="flex-shrink-0 px-5 py-4 border-t border-slate-100 bg-white">
                 <button
-                  onClick={() => onAction(expense.id, "Pending")}
-                  className="w-full py-2 text-[12px] text-slate-400 hover:text-slate-700 font-medium transition-colors"
+                  type="button"
+                  onClick={() => { onAction(expense.id, "Pending"); panelRef.current?.focus(); }}
+                  className={cn("w-full py-2 text-[12px] text-slate-400 hover:text-slate-700 font-medium transition-colors", focusRing)}
                 >
                   Undo action
                 </button>
