@@ -1,4 +1,4 @@
-import { useState, useMemo, useRef } from "react";
+import { useState, useMemo, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { format } from "date-fns";
 import {
@@ -16,11 +16,14 @@ import {
   Copy,
   ShieldAlert,
   Clock,
+  RotateCcw,
 } from "lucide-react";
 import { initialMockExpenses, Expense, ExpenseStatus } from "@/data/mock-expenses";
 import { ConfidenceBadge, RecommendationBadge, RiskBadge, StatusBadge } from "@/components/badges";
 import { formatCurrency, cn, focusRing } from "@/lib/utils";
 import { ExpenseDrawer } from "@/components/expense-drawer";
+import { ResetDemoDialog } from "@/components/reset-demo-dialog";
+import { clearDemoState, loadDemoState, saveDemoState } from "@/lib/demo-storage";
 import { useToast } from "@/hooks/use-toast";
 import { ToastAction } from "@/components/ui/toast";
 import {
@@ -46,15 +49,24 @@ type FilterTab = "All" | "Low Risk" | "Needs Review" | "High Risk";
 type SortOption = "Date" | "Amount" | "Risk";
 
 export default function Dashboard() {
-  const { toast } = useToast();
+  const { toast, toasts } = useToast();
 
-  const [expenses, setExpenses] = useState<Expense[]>(initialMockExpenses);
+  // Saved demo changes are read synchronously on first render, so the default data never
+  // flashes before the restored state.
+  const [initialState] = useState(loadDemoState);
+  const [expenses, setExpenses] = useState<Expense[]>(initialState.expenses);
   const [activeTab, setActiveTab] = useState<FilterTab>("All");
   const [sortBy, setSortBy] = useState<SortOption>("Risk");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [drawerExpenseId, setDrawerExpenseId] = useState<string | null>(null);
   // Simulated follow-up requests, kept separate from each expense's review status.
-  const [requests, setRequests] = useState<RequestsByExpense>({});
+  const [requests, setRequests] = useState<RequestsByExpense>(initialState.requests);
+  const [resetDialogOpen, setResetDialogOpen] = useState(false);
+  const resetButtonRef = useRef<HTMLButtonElement>(null);
+  // Skip saving the state that was just loaded, and warn at most once if saving fails.
+  const hydratedRef = useRef(false);
+  const storageWarnedRef = useRef(false);
+  const [storageWarningPending, setStorageWarningPending] = useState(false);
   // Element to return focus to when the drawer closes.
   const drawerTriggerRef = useRef<HTMLElement | null>(null);
 
@@ -63,6 +75,41 @@ export default function Dashboard() {
   expensesRef.current = expenses;
   const requestsRef = useRef(requests);
   requestsRef.current = requests;
+
+  // Persist review decisions and follow-up requests (not filters, selection, or other UI state).
+  useEffect(() => {
+    if (!hydratedRef.current) {
+      hydratedRef.current = true;
+      return;
+    }
+    if (!saveDemoState({ expenses, requests }) && !storageWarnedRef.current) {
+      storageWarnedRef.current = true;
+      setStorageWarningPending(true);
+    }
+  }, [expenses, requests]);
+
+  // Show the storage warning (once per page load) only when no other toast is open, so it
+  // never replaces an action's confirmation or its Undo button.
+  const toastOpen = toasts.some(t => t.open);
+  useEffect(() => {
+    if (!storageWarningPending || toastOpen) return;
+    setStorageWarningPending(false);
+    toast({
+      title: "Changes won't be saved",
+      description: "This browser isn't letting ClearSpend save data, so your changes will reset when you reload. Everything else works normally.",
+    });
+  }, [storageWarningPending, toastOpen, toast]);
+
+  const resetDemo = () => {
+    setExpenses(initialMockExpenses);
+    setRequests({});
+    setSelectedIds(new Set());
+    setDrawerExpenseId(null);
+    setResetDialogOpen(false);
+    clearDemoState();
+    // Replaces any open Undo toast, so a stale Undo can't be used after the reset.
+    toast({ title: "Demo reset", description: "All sample expenses have been restored." });
+  };
 
   const stats = useMemo(() => {
     const pending = expenses.filter(e => e.status === "Pending");
@@ -294,7 +341,7 @@ export default function Dashboard() {
     <div className="min-h-screen bg-background flex flex-col font-sans">
 
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-6 h-[60px] flex items-center justify-between shadow-sm">
+      <header className="sticky top-0 z-30 bg-white/95 backdrop-blur border-b border-slate-200/80 px-6 h-[60px] flex items-center justify-between gap-3 shadow-sm">
         <div className="flex items-center gap-6">
           <div className="flex items-center gap-2.5">
             <img src="/logo.png" alt="ClearSpend" className="w-7 h-7 rounded object-cover" />
@@ -305,6 +352,17 @@ export default function Dashboard() {
         </div>
 
         <div className="flex items-center gap-3.5">
+          <button
+            ref={resetButtonRef}
+            type="button"
+            onClick={() => setResetDialogOpen(true)}
+            aria-haspopup="dialog"
+            className={cn("flex items-center gap-1.5 rounded-lg border border-slate-200 bg-white px-2.5 py-1.5 text-[12px] font-medium text-slate-500 hover:text-slate-700 hover:bg-slate-50 whitespace-nowrap transition-colors", focusRing)}
+          >
+            <RotateCcw className="w-3.5 h-3.5" aria-hidden="true" />
+            Reset Demo
+          </button>
+          <div className="hidden sm:block h-5 w-px bg-slate-200" />
           <div className="text-right hidden sm:block">
             <p className="text-[13px] font-medium text-slate-700 leading-tight">Sarah Miller</p>
             <p className="text-[11px] text-slate-400 mt-0.5">VP of Engineering</p>
@@ -662,6 +720,13 @@ export default function Dashboard() {
         requests={requests}
         onSendRequest={sendRequest}
         onCancelRequest={cancelRequest}
+      />
+
+      <ResetDemoDialog
+        open={resetDialogOpen}
+        onCancel={() => setResetDialogOpen(false)}
+        onConfirm={resetDemo}
+        returnFocusRef={resetButtonRef}
       />
     </div>
   );

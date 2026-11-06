@@ -171,6 +171,8 @@ function toast({ ...props }: Toast) {
 function useToast() {
   const [state, setState] = React.useState<State>(memoryState)
 
+  // Subscribe once. Re-subscribing on every state change left a gap during effect
+  // cleanup in which a toast fired from another component's effect was never rendered.
   React.useEffect(() => {
     listeners.push(setState)
     return () => {
@@ -179,7 +181,7 @@ function useToast() {
         listeners.splice(index, 1)
       }
     }
-  }, [state])
+  }, [])
 
   return {
     ...state,
